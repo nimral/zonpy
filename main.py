@@ -45,7 +45,7 @@ def main():
     logging.info("Balance {}".format(balance))
 
     if balance >= settings["investment_amount"]:
-        loans = client.get_available_loans()
+        loans = client.get_available_loans(max_months=settings["max_months"])
 
         invested_loans = set(inv["loanId"] for inv in client.get_portfolio())
 

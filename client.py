@@ -81,11 +81,14 @@ class Client:
         )
         self.set_tokens(r)
 
-    def get_available_loans(self, min_remaining_investment=5000):
+    def get_available_loans(self, min_remaining_investment=5000,
+                            max_months=84):
         logging.debug("Get loans")
         r = requests.get(
             "{}/loans/marketplace?remainingInvestment__gt={}&"
-            .format(self.url_prefix, min_remaining_investment),
+            "termInMonths__lte={}".format(
+                self.url_prefix, min_remaining_investment, max_months
+            ),
             headers={
                 "X-Page": "0",
                 "X-Size": "100",
