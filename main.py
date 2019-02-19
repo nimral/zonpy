@@ -55,8 +55,9 @@ def main():
                 skipped += 1
                 continue
             rating = loan["rating"]
-            rating_share = client.get_rating_shares()[rating]
-            if rating_share <= settings["target_ratios"][rating]:
+            rating_share = client.get_rating_shares().get(rating, 0)
+            target_rating_share = settings["target_ratios"][rating]
+            if rating_share <= target_rating_share and target_rating_share > 0:
                 r = client.make_investment(
                     loan["id"], rating, settings["investment_amount"]
                 )
