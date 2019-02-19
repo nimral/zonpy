@@ -85,7 +85,7 @@ class Client:
                             max_months=84):
         logging.debug("Get loans")
         r = requests.get(
-            "{}/loans/marketplace?remainingInvestment__gt={}&"
+            "{}/loans/marketplace?nonReservedRemainingInvestment__gt={}&"
             "termInMonths__lte={}".format(
                 self.url_prefix, min_remaining_investment, max_months
             ),
