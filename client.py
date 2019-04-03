@@ -14,14 +14,16 @@ def d(r):
 class Client:
     page_size = 100
 
-    def __init__(self, username, password, url_prefix="https://api.zonky.cz"):
+    def __init__(self, username, password, interest_interval_ends,
+                 url_prefix="https://api.zonky.cz"):
         self.cached_portfolio = None
         self.cached_rating_shares = None
-        self.ratings = None
         self.access_token = None
         self.refresh_token = None
         self.url_prefix = url_prefix
         self.balance = None
+        self.interest_interval_ends = interest_interval_ends
+        self.bins = None
 
         self.auth(username, password)
         self.set_rating_amounts()
@@ -146,31 +148,37 @@ class Client:
         self.cached_portfolio = investments
         return investments
 
-    def set_rating_amounts(self):
-        logging.debug("Set rating amounts")
+    def get_bin_index(self, x):
+        for i, end in self.interest_interval_ends:
+            if x <= end:
+                return i
+
+    def set_bin_amounts(self):
+        logging.debug("Set bin amounts")
         portfolio = self.get_portfolio()
         self.sum_invested = 0
-        self.ratings = defaultdict(lambda: 0)
+        self.bins = [0] * len(self.interest_interval_ends)
         for inv in portfolio:
-            self.ratings[inv["rating"]] += inv["remainingPrincipal"]
+            index = self.get_bin_index(inv["interestRate"])
+            self.bins[index] += inv["remainingPrincipal"]
             self.sum_invested += inv["remainingPrincipal"]
 
-    def get_rating_shares(self):
+    def get_bin_shares(self):
         if self.balance is None:
             self.get_balance()
         sum_money = self.balance + self.sum_invested
-        if self.cached_rating_shares is None:
-            logging.debug("Cache rating shares")
-            if self.ratings is None:
-                self.set_rating_amounts()
-            self.cached_rating_shares = {
-                k: v / sum_money for k, v in self.ratings.items()
+        if self.cached_bin_shares is None:
+            logging.debug("Cache bin shares")
+            if self.bins is None:
+                self.set_bin_amounts()
+            self.cached_bin_shares = {
+                k: v / sum_money for k, v in self.bins.items()
             }
-        return self.cached_rating_shares
+        return self.cached_bin_shares
 
-    def make_investment(self, loan_id, rating, amount):
+    def make_investment(self, loan_id, interest_rate, amount):
         logging.info(
-            "Make investment {} {} {}".format(loan_id, rating, amount)
+            "Make investment {} {} {}".format(loan_id, interest_rate, amount)
         )
         self.auth()
         headers = {

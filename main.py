@@ -32,14 +32,37 @@ def main():
     with open(args.settings_path) as fin:
         settings = json.load(fin)
 
-    if abs(sum(settings["target_ratios"].values()) - 1) > 0.0001:
-        logging.error("Target shares do not sum to 1")
+    interest_interval_ends = []
+    last_end = 0
+    for end, share in settings["target_ratios"]:
+        if end < 0:
+            logging.error("Interval end is < 0 ({})".format(end))
+            return 1
+        if end > 1:
+            logging.error("Interval end is > 0 ({})".format(end))
+            return 1
+        if end <= last_end:
+            logging.error(
+                "Interval end is <= to the last one ({} <= {})"
+                .format(end, last_end)
+            )
+            return 1
+        last_end = end
+        interest_interval_ends.append(end)
+
+    if interest_interval_ends[-1] != 1:
+        logging.error("Last interval end must be equal to 1")
         return 1
+
+    def get_interval_index(x):
+        for end in interest_interval_ends:
+            if x <= end:
+                return end
 
     with open(settings["password_file"]) as fin:
         password = fin.read().strip()
 
-    client = Client(settings["username"], password)
+    client = Client(settings["username"], password, interest_interval_ends)
 
     balance = client.get_balance()
     logging.info("Balance {}".format(balance))
@@ -54,9 +77,10 @@ def main():
             if loan["id"] in invested_loans:
                 skipped += 1
                 continue
-            rating = loan["rating"]
+            interest_rate = loan["interestRate"]
+            interest_interval = 
             rating_share = client.get_rating_shares().get(rating, 0)
-            target_rating_share = settings["target_ratios"][rating]
+            target_rating_share = settings["target_ratios"].get(rating, 0)
             if rating_share <= target_rating_share and target_rating_share > 0:
                 r = client.make_investment(
                     loan["id"], rating, settings["investment_amount"]
