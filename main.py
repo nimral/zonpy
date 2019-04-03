@@ -32,17 +32,35 @@ def main():
     with open(args.settings_path) as fin:
         settings = json.load(fin)
 
-    if abs(sum(settings["target_ratios"].values()) - 1) > 0.0001:
-        logging.error("Target shares do not sum to 1")
+    interest_interval_ends = []
+    last_end = 0
+    for end, share in settings["target_ratios"]:
+        if end < 0:
+            logging.error("Interval end is < 0 ({})".format(end))
+            return 1
+        if end > 1:
+            logging.error("Interval end is > 0 ({})".format(end))
+            return 1
+        if end <= last_end:
+            logging.error(
+                "Interval end is <= to the last one ({} <= {})"
+                .format(end, last_end)
+            )
+            return 1
+        last_end = end
+        interest_interval_ends.append(end)
+
+    if interest_interval_ends[-1] != 1:
+        logging.error("Last interval end must be equal to 1")
         return 1
 
     with open(settings["password_file"]) as fin:
         password = fin.read().strip()
 
-    client = Client(settings["username"], password)
+    client = Client(settings["username"], password, interest_interval_ends)
 
     balance = client.get_balance()
-    logging.info("Balance {}".format(balance))
+    logging.info("Balance {:.2f}".format(balance))
 
     if balance >= settings["investment_amount"]:
         loans = client.get_available_loans(max_months=settings["max_months"])
@@ -54,17 +72,18 @@ def main():
             if loan["id"] in invested_loans:
                 skipped += 1
                 continue
-            rating = loan["rating"]
-            rating_share = client.get_rating_shares().get(rating, 0)
-            target_rating_share = settings["target_ratios"][rating]
-            if rating_share <= target_rating_share and target_rating_share > 0:
+            interest_rate = loan["interestRate"]
+            index = client.get_bin_index(interest_rate)
+            bin_share = client.get_bin_shares()[index]
+            target_bin_share = settings["target_ratios"][index][1]
+            if bin_share <= target_bin_share and target_bin_share > 0:
                 r = client.make_investment(
-                    loan["id"], rating, settings["investment_amount"]
+                    loan["id"], interest_rate, settings["investment_amount"]
                 )
                 if r.status_code == 200:
                     logging.info(
-                        "Invested in loan {} (rating {})".format(
-                            loan["id"], rating
+                        "Invested in loan {} (interest rate {})".format(
+                            loan["id"], interest_rate
                         )
                     )
                     balance -= settings["investment_amount"]

@@ -2,15 +2,15 @@
     "username": "my@email.com",
     "password_file": "/path/to/my/password",
     "investment_amount": 200,
-    "target_ratios": {
-        "AAAAA": 0.01,
-        "AAAA": 0.02,
-        "AAA": 0.15,
-        "AA": 0.15,
-        "A": 0.30,
-        "B": 0.27,
-        "C": 0.1,
-        "D": 0
-    },
+    "target_ratios": [
+        (0.03, 0),
+        (0.05, 0.03),
+        (0.06, 0.08),
+        (0.085, 0.15),
+        (0.11, 0.35),
+        (0.135, 0.3),
+        (0.155, 0.1),
+        (1, 0)
+    ],
     "max_months": 84
 }
