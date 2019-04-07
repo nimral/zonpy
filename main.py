@@ -65,7 +65,7 @@ def main():
     client = Client(settings["username"], password, interest_interval_ends)
 
     balance = client.get_balance()
-    logging.info("Balance {}".format(balance))
+    logging.info("Balance {:.2f}".format(balance))
 
     if balance >= settings["investment_amount"]:
         loans = client.get_available_loans(max_months=settings["max_months"])
@@ -78,17 +78,17 @@ def main():
                 skipped += 1
                 continue
             interest_rate = loan["interestRate"]
-            interest_interval = 
-            rating_share = client.get_rating_shares().get(rating, 0)
-            target_rating_share = settings["target_ratios"].get(rating, 0)
-            if rating_share <= target_rating_share and target_rating_share > 0:
+            index = client.get_bin_index(interest_rate)
+            bin_share = client.get_bin_shares()[index]
+            target_bin_share = settings["target_ratios"][index][1]
+            if bin_share <= target_bin_share and target_bin_share > 0:
                 r = client.make_investment(
-                    loan["id"], rating, settings["investment_amount"]
+                    loan["id"], interest_rate, settings["investment_amount"]
                 )
                 if r.status_code == 200:
                     logging.info(
-                        "Invested in loan {} (rating {})".format(
-                            loan["id"], rating
+                        "Invested in loan {} (interest rate {})".format(
+                            loan["id"], interest_rate
                         )
                     )
                     balance -= settings["investment_amount"]

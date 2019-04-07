@@ -2,7 +2,6 @@ import json
 import logging
 from datetime import datetime as dt
 from datetime import timedelta
-from collections import defaultdict
 
 import requests
 
@@ -17,7 +16,7 @@ class Client:
     def __init__(self, username, password, interest_interval_ends,
                  url_prefix="https://api.zonky.cz"):
         self.cached_portfolio = None
-        self.cached_rating_shares = None
+        self.cached_bin_shares = None
         self.access_token = None
         self.refresh_token = None
         self.url_prefix = url_prefix
@@ -26,7 +25,7 @@ class Client:
         self.bins = None
 
         self.auth(username, password)
-        self.set_rating_amounts()
+        self.set_bin_amounts()
 
     def set_tokens(self, r):
         res = d(r)
@@ -127,7 +126,8 @@ class Client:
         }
         r = requests.get(
             "{}/users/me/investments"
-            "?fields=loanId,rating,remainingPrincipal".format(self.url_prefix),
+            "?fields=loanId,interestRate,remainingPrincipal"
+            .format(self.url_prefix),
             headers=headers
         )
         return d(r)
@@ -149,7 +149,7 @@ class Client:
         return investments
 
     def get_bin_index(self, x):
-        for i, end in self.interest_interval_ends:
+        for i, end in enumerate(self.interest_interval_ends):
             if x <= end:
                 return i
 
@@ -164,17 +164,18 @@ class Client:
             self.sum_invested += inv["remainingPrincipal"]
 
     def get_bin_shares(self):
-        if self.balance is None:
-            self.get_balance()
-        sum_money = self.balance + self.sum_invested
         if self.cached_bin_shares is None:
+            if self.balance is None:
+                self.get_balance()
+            sum_money = self.balance + self.sum_invested
             logging.debug("Cache bin shares")
             if self.bins is None:
                 self.set_bin_amounts()
-            self.cached_bin_shares = {
-                k: v / sum_money for k, v in self.bins.items()
-            }
+            self.cached_bin_shares = [x / sum_money for x in self.bins]
         return self.cached_bin_shares
+
+    def get_bin_share(self, interest_rate):
+        return self.get_bin_shares()[self.get_bin_index(interest_rate)]
 
     def make_investment(self, loan_id, interest_rate, amount):
         logging.info(
@@ -195,17 +196,17 @@ class Client:
             headers=headers
         )
 
-        if self.ratings is not None:
+        if self.bins is not None:
             if r.status_code == 200:
-                self.ratings[rating] += amount
+                self.bins[self.get_bin_index(interest_rate)] += amount
                 self.sum_invested += amount
                 self.cached_portfolio.append({
                     "loanId": loan_id,
-                    "rating": rating,
+                    "interestRate": interest_rate,
                     "amount": amount,
                 })
-                self.cached_rating_shares = None
+                self.cached_bin_shares = None
                 self.balance -= amount
-                logging.info("Balance {}".format(self.balance))
+                logging.info("Balance {:.2f}".format(self.balance))
 
         return r
