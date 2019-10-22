@@ -24,7 +24,7 @@ def main():
 
     logging.basicConfig(
         filename=args.log_path,
-        level=logging.INFO,
+        level=logging.DEBUG,
         format='%(asctime)s %(levelname)s %(message)s'
     )
     logging.info("Running")
@@ -59,54 +59,67 @@ def main():
             if x <= end:
                 return end
 
+    def get_preferred_interval_indices(shares, target_ratios):
+        not_saturated = []
+        not_null = []
+        for i in range(len(shares)):
+            if shares[i] < target_ratios[i][1]:
+                not_saturated.append(i)
+            if target_ratios[i][1] > 0:
+                not_null.append(i)
+        if not_saturated:
+            return not_saturated
+        return not_null
+
     with open(settings["password_file"]) as fin:
         password = fin.read().strip()
 
-    client = Client(settings["username"], password, interest_interval_ends)
+    client = Client(
+        username=settings["username"],
+        password=password,
+        session_path=settings["session_path"],
+        code_path=settings["sms_code_path"],
+        token_path=settings["token_path"],
+        interest_interval_ends=interest_interval_ends
+    )
 
-    balance = client.get_balance()
-    logging.info("Balance {:.2f}".format(balance))
+    loans = client.get_available_loans(max_months=settings["max_months"])
 
-    if balance >= settings["investment_amount"]:
-        loans = client.get_available_loans(max_months=settings["max_months"])
+    invested_loans = set(inv["loanId"] for inv in client.get_portfolio())
 
-        invested_loans = set(inv["loanId"] for inv in client.get_portfolio())
+    skipped = 0
+    for loan in loans:
+        if loan["id"] in invested_loans:
+            skipped += 1
+            continue
+        interest_rate = loan["interestRate"]
 
-        skipped = 0
-        for loan in loans:
-            if loan["id"] in invested_loans:
-                skipped += 1
-                continue
-            interest_rate = loan["interestRate"]
-            index = client.get_bin_index(interest_rate)
-            bin_share = client.get_bin_shares()[index]
-            target_bin_share = settings["target_ratios"][index][1]
-            if bin_share <= target_bin_share and target_bin_share > 0:
-                r = client.make_investment(
-                    loan["id"], interest_rate, settings["investment_amount"]
-                )
-                if r.status_code == 200:
-                    logging.info(
-                        "Invested in loan {} (interest rate {})".format(
-                            loan["id"], interest_rate
-                        )
-                    )
-                    balance -= settings["investment_amount"]
-                    if balance < settings["investment_amount"]:
-                        logging.info(
-                            "Ran out of money ({:.2f} < {})"
-                            .format(balance, settings["investment_amount"])
-                        )
-                        break
-                else:
-                    logging.warning(r.text)
-            time.sleep(1)
-        logging.info("Skipped {} out of {} loans".format(skipped, len(loans)))
-    else:
-        logging.info(
-            "Not enough money ({:.2f} < {})"
-            .format(balance, settings["investment_amount"])
+        preferred_interval_indices = get_preferred_interval_indices(
+            client.get_bin_shares(),
+            settings["target_ratios"]
         )
+
+        index = client.get_bin_index(interest_rate)
+        if index in preferred_interval_indices:
+            r = client.make_investment(
+                loan["id"], interest_rate, settings["investment_amount"]
+            )
+            if r.status_code == 200:
+                logging.info(
+                    "Invested in loan {} (interest rate {})".format(
+                        loan["id"], interest_rate
+                    )
+                )
+            else:
+                response = json.loads(r.text)
+                if response.get("error") == "insufficientBalance":
+                    logging.info("Not enough money")
+                    break
+                logging.warning(r.text)
+        time.sleep(1)
+    logging.info("Skipped {} out of {} loans".format(skipped, len(loans)))
+
+    client.save()
 
 
 if __name__ == "__main__":

@@ -1,6 +1,9 @@
 {
     "username": "my@email.com",
     "password_file": "/path/to/my/password",
+    "session_path": "/path/to/session.pickle",
+    "sms_code_path": "/path/to/sms_code.txt",
+    "token_path": "/path/to/token.pickle",
     "investment_amount": 200,
     "target_ratios": [
         [0.03, 0],

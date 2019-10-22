@@ -1,7 +1,11 @@
 import json
+import time
+import os
+import pickle
 import logging
 from datetime import datetime as dt
 from datetime import timedelta
+from lxml import html
 
 import requests
 
@@ -12,30 +16,28 @@ def d(r):
 
 class Client:
     page_size = 100
+    auth_header = {
+        "Authorization": "Basic cm9ib3pvbmt5OjludEN6Y2lta0dBYXIzc2d6bXRlUVFNa"
+                         "3FxOHVkRg=="
+    }
 
-    def __init__(self, username, password, interest_interval_ends,
-                 url_prefix="https://api.zonky.cz"):
+    def __init__(self, username, password, session_path, code_path, token_path,
+                 interest_interval_ends, url_prefix="https://api.zonky.cz"):
         self.cached_portfolio = None
         self.cached_bin_shares = None
         self.access_token = None
-        self.refresh_token = None
         self.url_prefix = url_prefix
-        self.balance = None
         self.interest_interval_ends = interest_interval_ends
         self.bins = None
 
-        self.auth(username, password)
-        self.set_bin_amounts()
+        self.session = None
+        self.session_path = session_path
+        self.code_path = code_path
+        self.token_path = token_path
+        self.expires = None
 
-    def set_tokens(self, r):
-        res = d(r)
-        try:
-            self.access_token = res["access_token"]
-        except KeyError as e:
-            logging.error("No access token in {}".format(res))
-            raise e
-        self.expires = timedelta(seconds=res["expires_in"]) + dt.now()
-        self.refresh_token = res["refresh_token"]
+        self.username = username
+        self.password = password
 
     def reauth(self):
         logging.debug("Reauth")
@@ -55,6 +57,156 @@ class Client:
         )
         self.set_tokens(r)
 
+    def set_tokens(self, auth_code):
+        logging.debug("Set tokens")
+        r = requests.post(
+            "{}/oauth/token".format(self.url_prefix),
+            data={
+                "code": auth_code,
+                "redirect_uri": "https://app.zonky.cz/api/oauth/code",
+                "grant_type": "authorization_code"
+            },
+            headers=self.auth_header
+        )
+        res = d(r)
+
+        try:
+            self.access_token = res["access_token"]
+        except KeyError as e:
+            logging.error("No access token in {}".format(res))
+            raise e
+
+        self.expires = timedelta(seconds=res["expires_in"]) + dt.now()
+
+    def get_auth_code(self):
+        logging.debug("Get auth code")
+        if self.session is None:
+            if os.path.isfile(self.session_path):
+                with open(self.session_path, "rb") as fin:
+                    self.session = pickle.load(fin)
+            else:
+                self.session = requests.Session()
+
+        url = (
+            "https://app.zonky.cz/api/public-login?redirect=L29hdXRoL2"
+            "F1dGhvcml6ZT9jbGllbnRfaWQ9cm9ib3pvbmt5JnJlZGlyZWN0X3VyaT1o"
+            "dHRwczovL2FwcC56b25reS5jei9hcGkvb2F1dGgvY29kZSZyZXNwb25zZV"
+            "90eXBlPWNvZGUmc2NvcGU9U0NPUEVfQVBQX0JBU0lDX0lORk8lMjBTQ09Q"
+            "RV9JTlZFU1RNRU5UX1JFQUQlMjBTQ09QRV9JTlZFU1RNRU5UX1dSSVRFJT"
+            "IwU0NPUEVfUkVTRVJWQVRJT05TX1JFQUQlMjBTQ09QRV9SRVNFUlZBVElP"
+            "TlNfV1JJVEUlMjBTQ09QRV9SRVNFUlZBVElPTlNfU0VUVElOR1NfV1JJVE"
+            "UlMjBTQ09QRV9SRVNFUlZBVElPTlNfU0VUVElOR1NfUkVBRCUyMFNDT1BF"
+            "X05PVElGSUNBVElPTlNfUkVBRCUyMFNDT1BFX05PVElGSUNBVElPTlNfV1"
+            "JJVEUmc3RhdGU9ZGZmZGdkZmc%3D"
+        )
+        r = self.session.post(
+            url,
+            data={"email": self.username, "password": self.password}
+        )
+
+        if r.status_code // 100 != 2:
+            logging.error(
+                "Error status when getting auth code: {} {}"
+                .format(r.status_code, r.text)
+            )
+            return None
+
+        root = html.fromstring(r.text)
+        title = root.xpath(".//title")[0].text
+
+        if "SMS" in title:
+            if "nepodařilo odeslat" in title:
+                logging.error(
+                    "No SMS code is going to arrive because of an error(?) "
+                    "on the remote side."
+                )
+                return None
+
+            sleep_time = 1 * 60
+            logging.info(
+                "Will wait for {} s and read SMS code from {}"
+                .format(sleep_time, self.code_path)
+            )
+            time.sleep(sleep_time)
+
+            if not os.path.isfile(self.code_path):
+                logging.info(
+                    "SMS code path {} does not exist".format(self.code_path)
+                )
+                return None
+            with open(self.code_path) as fin:
+                sms_code = fin.read().strip()
+
+            r = self.session.post(url, data={"smsAuthCode": sms_code})
+            if r.status_code // 100 != 2:
+                logging.error(
+                    "Error status when getting auth code by sms code: {} {}"
+                    .format(r.status_code, r.text)
+                )
+                return None
+
+            root = html.fromstring(r.text)
+
+        auth_code = None
+        try:
+            auth_code = root.xpath(".//strong")[0].text
+        except Exception:
+            logging.warning(
+                "Did not find auth code in the response: {}".format(r.text)
+            )
+            return None
+        if len(auth_code) != 6:
+            logging.warning(
+                "Probably did not extract the right code: {} {}"
+                .format(auth_code, r.text)
+            )
+        return auth_code
+
+    def has_current_access_token(self):
+        if self.expires is not None:
+            if self.expires > dt.now() + timedelta(seconds=5):
+                return True
+        return False
+
+    def make_yourself_logged_in(self):
+        logging.debug("Make yourself logged in")
+        if self.has_current_access_token():
+            return
+
+        self.load()
+        if self.has_current_access_token():
+            return
+
+        auth_code = self.get_auth_code()
+        self.set_tokens(auth_code)
+
+    def save(self):
+        logging.debug("Save")
+        with open(self.token_path, "wb") as fout:
+            pickle.dump(
+                {
+                    "access_token": self.access_token,
+                    "expires": self.expires,
+                },
+                fout
+            )
+
+        if self.session is not None:
+            with open(self.session_path, "wb") as fout:
+                pickle.dump(self.session, fout)
+
+    def load(self):
+        logging.debug("Load")
+        if os.path.isfile(self.token_path):
+            with open(self.token_path, "rb") as fin:
+                _d = pickle.load(fin)
+                self.access_token = _d["access_token"]
+                self.expires = _d["expires"]
+
+        if os.path.isfile(self.session_path):
+            with open(self.session_path, "rb") as fin:
+                self.session = pickle.load(fin)
+
     def auth(self, username="", password=""):
         logging.debug("Auth")
         if self.access_token is not None:
@@ -72,7 +224,6 @@ class Client:
             data={
                 "grant_type": "password",
                 "password": password,
-                "scope": "SCOPE_APP_WEB",
                 "username": username,
             },
             headers={
@@ -99,7 +250,7 @@ class Client:
 
     def get_wallet(self):
         logging.debug("Get wallet")
-        self.auth()
+        self.make_yourself_logged_in()
         headers = {
             "Content-Type": "application/json",
             "Authorization": "Bearer {}".format(self.access_token)
@@ -117,7 +268,7 @@ class Client:
         return balance
 
     def get_portfolio_page(self, n):
-        self.auth()
+        self.make_yourself_logged_in()
         headers = {
             "Content-Type": "application/json",
             "Authorization": "Bearer {}".format(self.access_token),
@@ -164,14 +315,12 @@ class Client:
             self.sum_invested += inv["remainingPrincipal"]
 
     def get_bin_shares(self):
+        logging.debug("Get bin shares")
         if self.cached_bin_shares is None:
-            if self.balance is None:
-                self.get_balance()
-            sum_money = self.balance + self.sum_invested
             logging.debug("Cache bin shares")
             if self.bins is None:
                 self.set_bin_amounts()
-            self.cached_bin_shares = [x / sum_money for x in self.bins]
+            self.cached_bin_shares = [x / self.sum_invested for x in self.bins]
         return self.cached_bin_shares
 
     def get_bin_share(self, interest_rate):
@@ -181,7 +330,6 @@ class Client:
         logging.info(
             "Make investment {} {} {}".format(loan_id, interest_rate, amount)
         )
-        self.auth()
         headers = {
             "Content-Type": "application/json",
             "Authorization": "Bearer {}".format(self.access_token)
@@ -206,7 +354,4 @@ class Client:
                     "amount": amount,
                 })
                 self.cached_bin_shares = None
-                self.balance -= amount
-                logging.info("Balance {:.2f}".format(self.balance))
-
         return r
