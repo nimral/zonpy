@@ -122,7 +122,7 @@ class Client:
                 )
                 return None
 
-            sleep_time = 1 * 60
+            sleep_time = 5 * 60
             logging.info(
                 "Will wait for {} s and read SMS code from {}"
                 .format(sleep_time, self.code_path)
