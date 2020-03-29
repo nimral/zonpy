@@ -5,8 +5,8 @@ import pickle
 import logging
 from datetime import datetime as dt
 from datetime import timedelta
-from lxml import html
 
+from lxml import html
 import requests
 
 
