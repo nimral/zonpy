@@ -122,7 +122,7 @@ class Client:
                 )
                 return None
 
-            sleep_time = 5 * 60
+            sleep_time = 2 * 60
             logging.info(
                 "Will wait for {} s and read SMS code from {}"
                 .format(sleep_time, self.code_path)
@@ -156,10 +156,31 @@ class Client:
             )
             return None
         if len(auth_code) != 6:
-            logging.warning(
-                "Probably did not extract the right code: {} {}"
-                .format(auth_code, r.text)
-            )
+            if auth_code == "RoboZonky":
+                r = self.session.post(
+                    "https://app.zonky.cz/api/oauth/authorize",
+                    data={
+                        "user_oauth_approval": True,
+                        "scope.SCOPE_APP_BASIC_INFO": True,
+                        "scope.SCOPE_INVESTMENT_READ": True,
+                        "scope.SCOPE_NOTIFICATIONS_WRITE": True,
+                        "scope.SCOPE_RESERVATIONS_READ": True,
+                        "scope.SCOPE_RESERVATIONS_SETTINGS_READ": True,
+                        "scope.SCOPE_RESERVATIONS_SETTINGS_WRITE": True,
+                        "scope.SCOPE_RESERVATIONS_WRITE": True,
+                    }
+                )
+
+                root = html.fromstring(r.text)
+                auth_code = root.xpath(".//strong")[0].text
+
+                if len(auth_code) != 6:
+                    logging.warning(
+                        "Probably did not extract the right code: {} {}"
+                        .format(auth_code, r.text)
+                    )
+                    raise Exception("Did not extract authorization code")
+
         return auth_code
 
     def has_current_access_token(self):
