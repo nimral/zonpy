@@ -163,11 +163,13 @@ class Client:
                         "user_oauth_approval": True,
                         "scope.SCOPE_APP_BASIC_INFO": True,
                         "scope.SCOPE_INVESTMENT_READ": True,
+                        "scope.SCOPE_INVESTMENT_WRITE": True,
+                        "scope.SCOPE_NOTIFICATIONS_READ": True,
                         "scope.SCOPE_NOTIFICATIONS_WRITE": True,
                         "scope.SCOPE_RESERVATIONS_READ": True,
+                        "scope.SCOPE_RESERVATIONS_WRITE": True,
                         "scope.SCOPE_RESERVATIONS_SETTINGS_READ": True,
                         "scope.SCOPE_RESERVATIONS_SETTINGS_WRITE": True,
-                        "scope.SCOPE_RESERVATIONS_WRITE": True,
                     }
                 )
 
